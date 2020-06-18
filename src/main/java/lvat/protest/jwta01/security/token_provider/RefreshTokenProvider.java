@@ -2,9 +2,11 @@ package lvat.protest.jwta01.security.token_provider;
 
 import io.jsonwebtoken.*;
 import lvat.protest.jwta01.repository.RedisRepository;
+import lvat.protest.jwta01.security.UserPrincipal;
 import lvat.protest.jwta01.util.KeyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -35,6 +37,11 @@ public class RefreshTokenProvider {
                 .signWith(SignatureAlgorithm.RS512, keyUtil.getRefreshTokenPrivateKey()) //RSA
 //                .signWith(SignatureAlgorithm.ES512, keyUtil.getrefreshTokenPrivateKey()) //EC
                 .compact();
+    }
+
+    public String generateRefreshToken(Authentication authentication) {
+        String publicUserId = ((UserPrincipal) authentication.getPrincipal()).getPublicUserId();
+        return generateRefreshToken(publicUserId);
     }
 
     public Boolean removeRefreshToken(String refreshToken) {

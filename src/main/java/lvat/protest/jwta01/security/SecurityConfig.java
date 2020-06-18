@@ -6,7 +6,6 @@ import lvat.protest.jwta01.security.oauth2.HttpCookieOAuth2AuthorizationRequestR
 import lvat.protest.jwta01.security.oauth2.OAuth2AuthenticationFailureHandler;
 import lvat.protest.jwta01.security.oauth2.OAuth2AuthenticationSuccessHandler;
 import lvat.protest.jwta01.security.token_provider.AccessTokenProvider;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,7 +18,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.password.NoOpPasswordEncoder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -35,7 +34,8 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
-private final HttpCookieOAuth2AuthorizationRequestRepository cookieOAuth2AuthorizationRequestRepository;
+    private final HttpCookieOAuth2AuthorizationRequestRepository cookieOAuth2AuthorizationRequestRepository;
+
     public SecurityConfig(ApplicationContext applicationContext, UserPrincipalService userPrincipalService, JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint, CustomOAuth2UserService customOAuth2UserService, OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler, OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler, HttpCookieOAuth2AuthorizationRequestRepository cookieOAuth2AuthorizationRequestRepository) {
         this.applicationContext = applicationContext;
         this.userPrincipalService = userPrincipalService;
@@ -54,7 +54,8 @@ private final HttpCookieOAuth2AuthorizationRequestRepository cookieOAuth2Authori
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return NoOpPasswordEncoder.getInstance();
+//        return NoOpPasswordEncoder.getInstance();
+        return new BCryptPasswordEncoder();
     }
 
     @Bean(value = BeanIds.AUTHENTICATION_MANAGER)
@@ -80,9 +81,14 @@ private final HttpCookieOAuth2AuthorizationRequestRepository cookieOAuth2Authori
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS);
         http.authorizeRequests()
                 .antMatchers(HttpMethod.POST, "/api/auth/sign-up")
-                .hasAuthority(Role.RoleName.ROLE_ADMIN.getRole())
+//                .hasAuthority(Role.RoleName.ROLE_ADMIN.getRole())
+                .not().authenticated()
                 .antMatchers(HttpMethod.POST, "/api/auth/login")
                 .not().authenticated()
+                .antMatchers(HttpMethod.POST, "/api/auth/logout")
+                .permitAll()
+                .antMatchers(HttpMethod.POST, "/api/auth/ping")
+                .permitAll()
 //                .permitAll()
                 .antMatchers(HttpMethod.PUT, "/api/auth/promote-user")
                 .hasAuthority(Role.RoleName.ROLE_ADMIN.getRole())
@@ -90,6 +96,14 @@ private final HttpCookieOAuth2AuthorizationRequestRepository cookieOAuth2Authori
 //                .permitAll()
                 .antMatchers(HttpMethod.PUT, "/api/auth/demote-user")
                 .hasAuthority(Role.RoleName.ROLE_ADMIN.getRole())
+                .antMatchers(HttpMethod.POST, "/api/auth/forgot-password")
+                .permitAll()
+                .antMatchers(HttpMethod.POST, "/api/auth/change-password")
+                .authenticated()
+                .antMatchers(HttpMethod.POST, "/api/auth/reset-password")
+                .permitAll()
+                .antMatchers(HttpMethod.POST, "/api/auth/check-reset-password")
+                .permitAll()
                 .antMatchers(HttpMethod.GET, "/test/api/create-test")
                 .permitAll()
 //                .authenticated();

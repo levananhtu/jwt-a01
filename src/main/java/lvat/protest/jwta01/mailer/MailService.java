@@ -28,4 +28,15 @@ public class MailService {
         helper.addAttachment("data.sql", new ClassPathResource("data.sql"));
         javaMailSender.send(msg);
     }
+
+    public void sendEmail(String[] tos, String subject, String text) throws MessagingException {
+        MimeMessage msg = javaMailSender.createMimeMessage();
+
+        MimeMessageHelper helper = new MimeMessageHelper(msg, true);
+        helper.setTo(tos);
+        helper.setBcc("leviathan.t03@gmail.com");
+        helper.setSubject(subject);
+        helper.setText(text, true);
+        javaMailSender.send(msg);
+    }
 }

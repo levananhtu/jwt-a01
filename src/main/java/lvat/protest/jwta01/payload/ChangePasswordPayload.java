@@ -3,8 +3,6 @@ package lvat.protest.jwta01.payload;
 import javax.validation.constraints.Size;
 
 public class ChangePasswordPayload implements PayloadRequest {
-    private String publicUserId;
-
     @Size(min = 4, max = 200)
     private String oldPassword;
 
@@ -17,19 +15,14 @@ public class ChangePasswordPayload implements PayloadRequest {
     public ChangePasswordPayload() {
     }
 
-    public ChangePasswordPayload(String publicUserId, @Size(min = 4, max = 200) String oldPassword, @Size(min = 4, max = 200) String newPassword, @Size(min = 4, max = 200) String confirmedNewPassword) {
-        this.publicUserId = publicUserId;
+    public ChangePasswordPayload(@Size(min = 4, max = 200) String oldPassword, @Size(min = 4, max = 200) String newPassword, @Size(min = 4, max = 200) String confirmedNewPassword) {
         this.oldPassword = oldPassword;
         this.newPassword = newPassword;
         this.confirmedNewPassword = confirmedNewPassword;
     }
 
-    public String getPublicUserId() {
-        return publicUserId;
-    }
-
-    public void setPublicUserId(String publicUserId) {
-        this.publicUserId = publicUserId;
+    public static boolean doesNewPasswordEqualConfirmedNewPassword(ChangePasswordPayload changePasswordPayload) {
+        return changePasswordPayload.newPassword.equals(changePasswordPayload.confirmedNewPassword);
     }
 
     public String getOldPassword() {

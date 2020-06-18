@@ -2,9 +2,11 @@ package lvat.protest.jwta01.security.token_provider;
 
 import io.jsonwebtoken.*;
 import lvat.protest.jwta01.repository.RedisRepository;
+import lvat.protest.jwta01.security.UserPrincipal;
 import lvat.protest.jwta01.util.KeyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -35,6 +37,11 @@ public class AccessTokenProvider {
 //                .signWith(SignatureAlgorithm.RS512, keyUtil.getJwtPrivateKey()) //RSA
                 .signWith(SignatureAlgorithm.ES512, keyUtil.getAccessTokenPrivateKey()) //EC
                 .compact();
+    }
+
+    public String generateAccessToken(Authentication authentication) {
+        String publicUserId = ((UserPrincipal) authentication.getPrincipal()).getPublicUserId();
+        return generateAccessToken(publicUserId);
     }
 
     public Boolean removeAccessToken(String accessToken) {
@@ -86,6 +93,5 @@ public class AccessTokenProvider {
         Claims body = getAccessTokenBody(accessToken);
         assert body != null;
         return body.getSubject();
-
     }
 }

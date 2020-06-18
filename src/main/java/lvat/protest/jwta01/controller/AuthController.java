@@ -4,7 +4,9 @@ import lvat.protest.jwta01.entity.User;
 import lvat.protest.jwta01.exception.UserConflictException;
 import lvat.protest.jwta01.exception.UserNotFoundException;
 import lvat.protest.jwta01.exception_handle.ApplicationExceptionHandle;
+import lvat.protest.jwta01.mailer.MailService;
 import lvat.protest.jwta01.payload.*;
+import lvat.protest.jwta01.repository.RedisRepository;
 import lvat.protest.jwta01.security.token_provider.AccessTokenProvider;
 import lvat.protest.jwta01.security.token_provider.RefreshTokenProvider;
 import lvat.protest.jwta01.service.UserService;
@@ -17,13 +19,12 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import javax.mail.MessagingException;
 import javax.validation.Valid;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping(path = "/api/auth")
@@ -33,12 +34,16 @@ public class AuthController extends ApplicationExceptionHandle {
     private final RefreshTokenProvider refreshTokenProvider;
     private final UserService userService;
     private final AuthenticationManager authenticationManager;
+    private final MailService mailService;
+    private final RedisRepository redisRepository;
 
-    public AuthController(AccessTokenProvider accessTokenProvider, UserService userService, RefreshTokenProvider refreshTokenProvider, AuthenticationManager authenticationManager) {
+    public AuthController(AccessTokenProvider accessTokenProvider, UserService userService, RefreshTokenProvider refreshTokenProvider, AuthenticationManager authenticationManager, MailService mailService, RedisRepository redisRepository) {
         this.accessTokenProvider = accessTokenProvider;
         this.userService = userService;
         this.refreshTokenProvider = refreshTokenProvider;
         this.authenticationManager = authenticationManager;
+        this.mailService = mailService;
+        this.redisRepository = redisRepository;
     }
 
     @RequestMapping(path = "/sign-up", method = RequestMethod.POST)
@@ -60,25 +65,18 @@ public class AuthController extends ApplicationExceptionHandle {
 
     @RequestMapping(path = "/login", method = RequestMethod.POST)
     public ResponseEntity<?> login(@Valid @RequestBody LoginPayload loginPayload) {
-        try {
-            User user = userService.findByCredentials(loginPayload.getEmailOrUsername(), loginPayload.getPassword());
-            Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(
-                            loginPayload.getEmailOrUsername(),
-                            loginPayload.getPassword()
-                    )
-            );
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            return new ResponseEntity<>(
-                    new TokenPairPayload(
-                            accessTokenProvider.generateAccessToken(user.getPublicUserId()),
-                            refreshTokenProvider.generateRefreshToken(user.getPublicUserId())),
-                    HttpStatus.OK);
-        } catch (UserNotFoundException e) {
-            return new ResponseEntity<>(
-                    new MessagePayload("Username, email or password is not valid"),
-                    HttpStatus.BAD_REQUEST);
-        }
+        Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                        loginPayload.getEmailOrUsername(),
+                        loginPayload.getPassword()
+                )
+        );
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        return new ResponseEntity<>(
+                new TokenPairPayload(
+                        accessTokenProvider.generateAccessToken(authentication),
+                        refreshTokenProvider.generateRefreshToken(authentication)),
+                HttpStatus.OK);
     }
 
     @RequestMapping(path = "/logout", method = RequestMethod.POST)
@@ -93,35 +91,90 @@ public class AuthController extends ApplicationExceptionHandle {
 
     }
 
-//    @RequestMapping(path = "/promote-user", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
-//    public ResponseEntity<?> promoteUser(@RequestBody Map<String, String> publicUserIdPayload) {
-//        if (userService.promoteUser(publicUserIdPayload.get("publicUserId"))) {
-//            return new ResponseEntity<>(new MessagePayload("Account promote to role ADMIN successfully"),
-//                    HttpStatus.OK);
-//        } else {
-//            return new ResponseEntity<>(new MessagePayload("Account promote to role admin unsuccessfully"),
-//                    HttpStatus.BAD_REQUEST);
-//        }
-//    }
-//
-//    @RequestMapping(path = "/demote-user", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
-//    public ResponseEntity<?> demoteUser(@RequestBody Map<String, String> publicUserIdPayload) {
-//        if (userService.demoteUser(publicUserIdPayload.get("publicUserId"))) {
-//            return new ResponseEntity<>(new MessagePayload("Account demote to role USER successfully"),
-//                    HttpStatus.OK);
-//        } else {
-//            return new ResponseEntity<>(new MessagePayload("Account demote to role user unsuccessfully"),
-//                    HttpStatus.BAD_REQUEST);
-//        }
-//    }
+    @RequestMapping(path = "/forgot-password", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> forgotPassword(@RequestBody Map<String, String> payload) {
+        String emailOrUsername = payload.get("emailOrUsername");
+        try {
+            User user = userService.findByUsernameOrEmail(emailOrUsername, emailOrUsername);
+            String resetCode = UUID.randomUUID().toString().replace("-", "");
+            String resetPasswordLink = "http://localhost:3000/reset-password?rc=" + resetCode;
+            redisRepository.addResetPasswordCode(resetCode, user.getPublicUserId());
+            try {
+                mailService.sendEmail(new String[]{user.getEmail()}, "about password reset request", "<a href=\"" + resetPasswordLink + "\">link</a>");
+            } catch (MessagingException e) {
+                LOGGER.info("unknown password reset request");
+            }
 
-    @RequestMapping(path = "/forgot-password", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<?> forgotPassword(@RequestBody Map<String, String> publicUserIdPayload) {
-        return null;
+        } catch (UserNotFoundException e) {
+            LOGGER.info("unknown password reset request");
+        }
+        return new ResponseEntity<>(
+                new MessagePayload("mail sent!!"),
+                HttpStatus.OK);
     }
 
-    @RequestMapping(path = "/reset-password", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<?> resetPassword(@RequestBody ChangePasswordPayload changePasswordPayload) {
-        return null;
+    @RequestMapping(path = "/reset-password", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> resetPassword(@RequestBody ResetPasswordPayload resetPasswordPayload) {
+        String resetCode = resetPasswordPayload.getRc();
+        String password = resetPasswordPayload.getPassword();
+        if (!password.equals(resetPasswordPayload.getConfirmedPassword())) {
+            return new ResponseEntity<>(new MessagePayload("password and password confirm must be identical!!"), HttpStatus.BAD_REQUEST);
+        }
+        String publicUserId = redisRepository.getPublicUserIdFromResetPasswordCode(resetCode);
+        if (publicUserId == null) {
+            return new ResponseEntity<>(new MessagePayload("deny"), HttpStatus.BAD_REQUEST);
+        }
+        redisRepository.removeResetPasswordCode(resetCode);
+        try {
+            userService.updatePassword(publicUserId, password);
+        } catch (UserNotFoundException e) {
+            return new ResponseEntity<>(new MessagePayload("deny"), HttpStatus.BAD_REQUEST);
+        }
+        return new ResponseEntity<>(new MessagePayload("password updated!!"), HttpStatus.OK);
+    }
+
+    @RequestMapping(path = "/check-reset-password", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> checkResetPassword(@RequestBody Map<String, String> body) {
+        String resetCode = body.get("rc");
+        if (redisRepository.getPublicUserIdFromResetPasswordCode(resetCode) == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok().build();
+    }
+
+    @RequestMapping(path = "/abort-reset-password", method = RequestMethod.PUT, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> abortResetPassword(@RequestParam(name = "rc") String resetCode) {
+        redisRepository.removeResetPasswordCode(resetCode);
+        return ResponseEntity.ok().build();
+    }
+
+    @RequestMapping(path = "/change-password", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> changePassword(@Valid @RequestBody ChangePasswordPayload changePasswordPayload, @RequestHeader(name = "Authorization") String authorizationHeader) {
+        if (!ChangePasswordPayload.doesNewPasswordEqualConfirmedNewPassword(changePasswordPayload)) {
+            return new ResponseEntity<>(new MessagePayload("password error"), HttpStatus.BAD_REQUEST);
+        }
+        String accessToken = authorizationHeader.substring("Bearer ".length());
+        String publicUserId = accessTokenProvider.getPublicUserIdFromAccessToken(accessToken);
+        try {
+            userService.updatePassword(publicUserId, changePasswordPayload.getNewPassword());
+        } catch (UserNotFoundException ignored) {
+
+        }
+        return new ResponseEntity<>(new MessagePayload("password updated successfully"), HttpStatus.OK);
+    }
+
+    @RequestMapping(path = "/ping", method = RequestMethod.POST, consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> ping(@RequestBody Map<String, String> body) {
+        String accessToken = body.get("accessToken");
+        if (accessTokenProvider.isValidAccessToken(accessToken)) {
+            String publicUserId = accessTokenProvider.getPublicUserIdFromAccessToken(accessToken);
+            try {
+                userService.findByPublicUserId(publicUserId);
+                return ResponseEntity.ok().build();
+            } catch (UserNotFoundException e) {
+                return ResponseEntity.badRequest().build();
+            }
+        }
+        return ResponseEntity.badRequest().build();
     }
 }

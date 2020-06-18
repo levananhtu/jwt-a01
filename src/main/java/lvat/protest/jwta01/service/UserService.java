@@ -6,18 +6,23 @@ import lvat.protest.jwta01.exception.UserConflictException;
 import lvat.protest.jwta01.exception.UserNotFoundException;
 import lvat.protest.jwta01.repository.RoleRepository;
 import lvat.protest.jwta01.repository.UserRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+
+import static lvat.protest.jwta01.entity.User.AuthProvider.LOCAL;
 
 @Service
 public class UserService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserService(UserRepository userRepository, RoleRepository roleRepository) {
+    public UserService(UserRepository userRepository, RoleRepository roleRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public List<User> createTest() {
@@ -27,8 +32,8 @@ public class UserService {
         List<User> users = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
             roles = new HashSet<>();
-            User user = new User("lvat", "lvat0" + i, "lvat0" + i + "@gmail.com", "123456",
-                    true, true, true, true, User.AuthProvider.LOCAL, null);
+            User user = new User("lvat", "lvat0" + i, "lvat0" + i + "@gmail.com", passwordEncoder.encode("123456"),
+                    true, true, true, true, LOCAL, null);
 
             switch (i % 2) {
                 case 0:
@@ -62,8 +67,8 @@ public class UserService {
         if (userRepository.existsByUsernameOrEmail(username, email)) {
             throw new UserConflictException();
         }
-        User user = new User(name, username, email, password,
-                null, null, null, null);
+        User user = new User(name, username, email, passwordEncoder.encode(password),
+                true, true, true, true, LOCAL, null);
         Role roleUser = roleRepository.findRoleStudent();
         user.setRoles(Collections.singleton(roleUser));
         return userRepository.save(user);
@@ -95,6 +100,23 @@ public class UserService {
         return false;
     }
 
+    public Boolean existsByUsernameOrEmail(String username, String email) {
+        return userRepository.existsByUsernameOrEmail(username, email);
+    }
+
+    public User findByUsernameOrEmail(String username, String email) throws UserNotFoundException {
+        return userRepository.findByUsernameOrEmail(username, email).orElseThrow(UserNotFoundException::new);
+    }
+
+    public User updatePassword(String publicUserId, String newPassword) throws UserNotFoundException {
+        User user = userRepository.findByPublicUserId(publicUserId).orElseThrow(UserNotFoundException::new);
+        user.setPassword(passwordEncoder.encode(newPassword));
+        return userRepository.save(user);
+    }
+
+    public User findByPublicUserId(String publicUserId) throws UserNotFoundException {
+        return userRepository.findByPublicUserId(publicUserId).orElseThrow(UserNotFoundException::new);
+    }
 //    public void changePassword(String publicUserId, String oldPassword, String newPassword) {
 //        userRepository.fin;
 //    }
